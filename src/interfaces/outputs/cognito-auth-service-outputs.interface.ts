@@ -18,3 +18,16 @@ export interface GetLoginUrlOutput {
 export interface GetLogoutUrlOutput {
   url: string;
 }
+
+export interface CreateTokenOutput {
+  expiresIn: number;
+  accessToken: string;
+  tokenType: string;
+}
+
+export interface CreateTokenOutput {
+  expiresIn: number;
+  idToken: string;
+  accessToken: string;
+  tokenType: string;
+}

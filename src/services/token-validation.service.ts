@@ -92,7 +92,9 @@ export class TokenValidationService {
       const jwksCache = await this.cacheService.get('COMERC_AUTH.JWKS');
 
       if (jwksCache) {
-        return JSON.parse(jwksCache);
+        return typeof jwksCache === 'string'
+          ? JSON.parse(jwksCache)
+          : jwksCache;
       }
     }
 
@@ -110,7 +112,7 @@ export class TokenValidationService {
     if (this.cacheService) {
       await this.cacheService.set(
         'COMERC_AUTH.JWKS',
-        JSON.stringify(jwks),
+        jwks,
         24 * 60 * 60 * 1000,
       );
     }

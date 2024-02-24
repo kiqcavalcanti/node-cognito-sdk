@@ -1,27 +1,31 @@
 import {
-  AdminCreateUserCommand,
-  AdminUpdateUserAttributesCommand,
-  AdminDeleteUserCommand,
-  AdminGetUserCommand,
-  AdminSetUserPasswordCommand,
   ChangePasswordCommand,
   GetUserCommand,
-  ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { AwsCredentials, CognitoBaseService } from './cognito-base.service';
 import { CognitoApiError } from '../errors';
+import axios from 'axios';
+import {
+  GetUserInfoOutput,
+  GetUserInfoOutputPaginate,
+} from '../interfaces/outputs/cognito-user-service-outputs.interfaces';
+import {
+  AdminChangePasswordInput,
+  AdminCreateUserInput,
+  AdminUpdateUserInput,
+} from '../interfaces/inputs';
 
 export class CognitoUserService extends CognitoBaseService {
   constructor(
     userPoolId: string,
     region: string,
     credentials: AwsCredentials,
-    protected apiUrl: string,
+    protected comercAuthApiUrl: string,
   ) {
     super(userPoolId, region, credentials);
   }
 
-  async getUserInfoByToken(token: string) {
+  async getUserInfoByToken(token: string): Promise<GetUserInfoOutput> {
     try {
       return await this.cognitoClient.send(
         new GetUserCommand({
@@ -31,80 +35,6 @@ export class CognitoUserService extends CognitoBaseService {
     } catch (e) {
       throw new CognitoApiError(
         'Unable to get user info',
-        e.message,
-        e.$metadata.httpStatusCode,
-      );
-    }
-  }
-
-  async adminGetUserInfo(username: string) {
-    const params = {
-      UserPoolId: this.userPoolId,
-      Username: username,
-    };
-
-    try {
-      return await this.cognitoClient.send(new AdminGetUserCommand(params));
-    } catch (e) {
-      throw new CognitoApiError(
-        'Unable to get user info',
-        e.message,
-        e.$metadata.httpStatusCode,
-      );
-    }
-  }
-
-  async createUser(data: {
-    username: string;
-    password: string;
-    email: string;
-    name: string;
-    picture: string;
-    phoneNumber: string;
-    birthDate: string;
-  }) {
-    const params = {
-      UserPoolId: this.userPoolId,
-      Username: data.username,
-      TemporaryPassword: data.password,
-      UserAttributes: this.getUserAttributes(data),
-    };
-
-    try {
-      return await this.cognitoClient.send(
-        new AdminCreateUserCommand({
-          ...params,
-          DesiredDeliveryMediums: ['EMAIL'],
-          // MessageAction: 'RESEND',
-        }),
-      );
-    } catch (e) {
-      console.log(e);
-      throw new CognitoApiError(
-        'Unable to create user',
-        e.message,
-        e.$metadata.httpStatusCode,
-      );
-    }
-  }
-
-  async adminDefineUserPassword(data: {
-    username: string;
-    password: string;
-    permanent: boolean;
-  }) {
-    try {
-      await this.cognitoClient.send(
-        new AdminSetUserPasswordCommand({
-          UserPoolId: this.userPoolId,
-          Username: data.username,
-          Password: data.password,
-          Permanent: data.permanent,
-        }),
-      );
-    } catch (e) {
-      throw new CognitoApiError(
-        'Unable to change user password',
         e.message,
         e.$metadata.httpStatusCode,
       );
@@ -124,6 +54,7 @@ export class CognitoUserService extends CognitoBaseService {
           ProposedPassword: data.newPassword,
         }),
       );
+      return true;
     } catch (e) {
       throw new CognitoApiError(
         'Unable to change user password',
@@ -133,112 +64,222 @@ export class CognitoUserService extends CognitoBaseService {
     }
   }
 
-  protected getUserAttributes(data: {
-    email: string;
-    picture: string;
-    phoneNumber: string;
-    birthDate: string;
-  }) {
-    const userAttributes = [
-      {
-        Name: 'email',
-        Value: data.email,
-      },
-    ];
+  async adminCreateUser(
+    m2mToken: string,
+    input: AdminCreateUserInput,
+  ): Promise<GetUserInfoOutput> {
+    try {
+      const response = await axios.post(
+        `${this.comercAuthApiUrl}/api/admin/users`,
+        input,
+        {
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        },
+      );
 
-    if (data.birthDate) {
-      userAttributes.push({
-        Name: 'birthdate',
-        Value: data.birthDate,
-      });
+      return this.getUserInfoOutput(response.data);
+    } catch (error) {
+      throw new CognitoApiError(
+        'Unable to create user',
+        error.message,
+        error.response?.status,
+      );
     }
-
-    if (data.phoneNumber) {
-      userAttributes.push({
-        Name: 'phone_number',
-        Value: data.phoneNumber,
-      });
-    }
-
-    if (data.picture) {
-      userAttributes.push({
-        Name: 'picture',
-        Value: data.picture,
-      });
-    }
-
-    return userAttributes;
   }
 
-  async updateUserAttributes(data: {
-    username: string;
-    email: string;
-    name: string;
-    picture: string;
-    phoneNumber: string;
-    birthDate: string;
-  }) {
-    const params = {
-      UserPoolId: this.userPoolId,
-      Username: data.username,
-      UserAttributes: this.getUserAttributes(data),
-    };
-
+  async adminUpdateUser(m2mToken: string, input: AdminUpdateUserInput) {
     try {
-      return await this.cognitoClient.send(
-        new AdminUpdateUserAttributesCommand({
-          ...params,
-        }),
-      );
-    } catch (e) {
+      const url = `${this.comercAuthApiUrl}/api/admin/users/${input.username}`;
+      await axios.patch(url, input, {
+        headers: {
+          Authorization: `Bearer ${m2mToken}`,
+        },
+      });
+      return this.adminGetUserInfo(m2mToken, input.username);
+    } catch (error) {
       throw new CognitoApiError(
         'Unable to update user',
-        e.message,
-        e.$metadata.httpStatusCode,
+        error.message,
+        error.response?.status,
       );
     }
   }
 
-  async adminDeleteUser(data: { username: string }) {
-    const params = {
-      UserPoolId: this.userPoolId,
-      Username: data.username,
-    };
-
+  async adminGetUserInfo(m2mToken: string, username: string) {
     try {
-      return await this.cognitoClient.send(new AdminDeleteUserCommand(params));
-    } catch (e) {
+      const response = await axios.get(
+        `${this.comercAuthApiUrl}/api/admin/users/${username}`,
+        {
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        },
+      );
+
+      return this.getUserInfoOutput(response.data);
+    } catch (error) {
       throw new CognitoApiError(
-        'Unable to delete user',
-        e.message,
-        e.$metadata.httpStatusCode,
+        'Unable to get user info',
+        error.message,
+        error.response?.status,
       );
     }
   }
 
-  async adminListUsers(dto: {
-    perPage: number;
-    nextPage: string;
-    search: string;
-  }) {
+  async adminListUser(
+    m2mToken: string,
+    perPage: number = 10,
+    nextPage: string = '',
+  ): Promise<GetUserInfoOutputPaginate> {
     try {
-      return await this.cognitoClient.send(
-        new ListUsersCommand({
-          UserPoolId: this.userPoolId,
-          Limit: dto.perPage,
-          PaginationToken: dto.nextPage
-            ? dto.nextPage.replaceAll(' ', '+')
-            : undefined,
-          Filter: dto.search,
-        }),
+      const response = await axios.get(
+        `${this.comercAuthApiUrl}/api/admin/users`,
+        {
+          params: { per_page: perPage, next_page: nextPage },
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        },
       );
-    } catch (e) {
-      console.log(e);
+
+      const paginate = response.data;
+
+      const nextToken = paginate.meta?.next_token || '';
+
+      const paginateItems = paginate.data.items.map((item) =>
+        this.getUserInfoOutputPaginate(item),
+      );
+
+      return {
+        items: paginateItems,
+        meta: {
+          nextPage: nextToken,
+        },
+      };
+    } catch (error) {
       throw new CognitoApiError(
         'Unable to list users',
-        e.message,
-        e.$metadata?.httpStatusCode,
+        error.message,
+        error.response?.status,
       );
     }
+  }
+
+  async adminChangeUserPassword(
+    m2mToken: string,
+    input: AdminChangePasswordInput,
+  ) {
+    try {
+      await axios.post(
+        `${this.comercAuthApiUrl}/api/admin/users/${input.username}/change-password`,
+        {
+          password: input.password,
+          password_temporary:
+            typeof input.passwordTemporary === 'boolean'
+              ? input.passwordTemporary
+              : false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        },
+      );
+
+      return true;
+    } catch (error) {
+      throw new CognitoApiError(
+        'Unable to change user password',
+        error.message,
+        error.response?.status,
+      );
+    }
+  }
+
+  async adminDeleteUser(m2mToken: string, username: string) {
+    try {
+      await axios.delete(
+        `${this.comercAuthApiUrl}/api/admin/users/${username}`,
+        {
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        },
+      );
+
+      return true;
+    } catch (error) {
+      throw new CognitoApiError(
+        'Unable to delete user',
+        error.message,
+        error.response?.status,
+      );
+    }
+  }
+
+  protected getUserInfoOutput(user: any): GetUserInfoOutput {
+    return {
+      id: user.data.sub,
+      username: user.data.username,
+      name: user.data.name || '',
+      email: user.data.email || '',
+      emailVerified: user.data.email_verified === 'true',
+      phoneNumber: user.data.phone_number || '',
+      phoneNumberVerified: user.data.phone_number_verified === 'true',
+      birthDate: user.data.birthdate || '',
+      picture: user.data.picture || '',
+    };
+  }
+
+  protected getUserInfoOutputPaginate(user: any): GetUserInfoOutput {
+    return {
+      id: user.sub,
+      username: user.username,
+      name: user.name || '',
+      email: user.email || '',
+      emailVerified: user.email_verified === 'true',
+      phoneNumber: user.phone_number || '',
+      phoneNumberVerified: user.phone_number_verified === 'true',
+      birthDate: user.birthdate || '',
+      picture: user.picture || '',
+    };
+  }
+
+  protected prepareUserResponseData(data: any): GetUserInfoOutput {
+    const preparedData: any = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (key === 'UserAttributes') {
+        for (const userAttribute of data[key]) {
+          preparedData.attributes[userAttribute.Name] = userAttribute.Value;
+        }
+        continue;
+      }
+
+      preparedData[this.toSnakeCase(key)] = value;
+    }
+
+    return {
+      id: preparedData.attributes.sub,
+      username: preparedData.username,
+      name: preparedData.attributes.name || '',
+      email: preparedData.attributes.email || '',
+      emailVerified: preparedData.attributes.email_verified === 'true',
+      phoneNumber: preparedData.attributes.phone_number || '',
+      phoneNumberVerified:
+        preparedData.attributes.phone_number_verified === 'true',
+      birthDate: preparedData.attributes.birthdate || '',
+      picture: preparedData.attributes.picture || '',
+    };
+  }
+
+  protected toSnakeCase(key: string) {
+    let cleanedString = key.replace(/[^\w\s]/gi, '');
+
+    cleanedString = cleanedString.replace(/\s+/g, '_').toLowerCase();
+
+    return cleanedString;
   }
 }

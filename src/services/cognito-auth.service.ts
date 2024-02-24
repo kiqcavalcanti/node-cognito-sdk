@@ -1,11 +1,9 @@
-import {
-  GlobalSignOutCommand,
-  AdminInitiateAuthCommand,
-} from '@aws-sdk/client-cognito-identity-provider';
+import { AdminInitiateAuthCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { createHmac } from 'crypto';
 import {
   CacheServiceInterface,
   CreateM2mTokenOutput,
+  CreateTokenOutput,
   ExchangeCodeForTokenOutput,
   GetLoginUrlOutput,
   GetLogoutUrlOutput,
@@ -24,7 +22,7 @@ import {
   GetLogoutUrlInput,
   GlobalLogoutInput,
   TokenInfoInput,
-} from '../interfaces/inputs/cognito-auth-service-inputs.interfaces';
+} from '../interfaces/inputs';
 import { TokenValidationService } from './token-validation.service';
 import { CognitoUserService } from './cognito-user.service';
 import axios from 'axios';
@@ -38,6 +36,7 @@ export class CognitoAuthService extends CognitoBaseService {
     credentials: AwsCredentials,
     protected cognitoDomainUrl: string,
     protected cognitoIdpUrl: string,
+    protected comercAuthApiUrl: string,
     protected cacheService: CacheServiceInterface = null,
   ) {
     super(userPoolId, region, credentials);
@@ -52,7 +51,7 @@ export class CognitoAuthService extends CognitoBaseService {
       userPoolId,
       region,
       credentials,
-      '',
+      this.comercAuthApiUrl,
     );
   }
 
@@ -108,7 +107,10 @@ export class CognitoAuthService extends CognitoBaseService {
     }
 
     try {
-      if (data.verifyRevoked) {
+      if (
+        (data.verifyRevoked || !this.cacheService) &&
+        tokenData.tokenUse === 'access'
+      ) {
         await this.cognitoUserService.getUserInfoByToken(data.token);
       }
     } catch (e) {
@@ -119,24 +121,30 @@ export class CognitoAuthService extends CognitoBaseService {
   }
 
   async globalLogout(data: GlobalLogoutInput): Promise<boolean> {
-    const command = new GlobalSignOutCommand({
-      AccessToken: data.token,
-    });
+    const url = this.comercAuthApiUrl + '/api/auth/global-logout';
+
+    const body = {
+      access_token: data.token,
+    };
 
     try {
-      await this.cognitoClient.send(command);
+      await axios.post(url, body);
+
       return true;
     } catch (e) {
-      throw new CognitoApiError(
-        'Unable logout user',
+      throw new Oauth2TokenError(
+        'Unable to revoke token',
         e.message,
-        e.$metadata.httpStatusCode,
+        e.response?.status,
+        e.response?.data,
       );
     }
   }
-  async adminInitiateAuth(data: AdminInitiateAuthInput) {
+  async adminInitiateAuth(
+    data: AdminInitiateAuthInput,
+  ): Promise<CreateTokenOutput> {
     try {
-      return await this.cognitoClient.send(
+      const request = await this.cognitoClient.send(
         new AdminInitiateAuthCommand({
           AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
           ClientId: data.clientId,
@@ -152,6 +160,13 @@ export class CognitoAuthService extends CognitoBaseService {
           },
         }),
       );
+
+      return {
+        idToken: request.idToken,
+        accessToken: request.accessToken,
+        expiresIn: request.expiresIn,
+        tokenType: request.tokenType,
+      };
     } catch (e) {
       throw new CognitoApiError(
         'Unable to create token',
@@ -193,7 +208,7 @@ export class CognitoAuthService extends CognitoBaseService {
 
       return {
         idToken: request.data.id_token,
-        accessToken: request.data.accessToken,
+        accessToken: request.data.access_token,
         tokenType: request.data.token_type,
         expiresIn: request.data.expires_in,
       };
