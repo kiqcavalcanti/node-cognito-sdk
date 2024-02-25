@@ -4,7 +4,7 @@ export interface GlobalLogoutInput {
 
 export interface TokenInfoInput {
   token: string;
-  verifyRevoked: boolean;
+  verifyRevoked?: boolean;
 }
 
 export interface CreateM2MTokenInput {
