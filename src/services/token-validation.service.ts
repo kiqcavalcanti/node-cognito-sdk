@@ -112,7 +112,7 @@ export class TokenValidationService {
     if (this.cacheService) {
       await this.cacheService.set(
         'COMERC_AUTH.JWKS',
-        jwks,
+        typeof jwks === 'string' ? jwks : JSON.stringify(jwks),
         24 * 60 * 60 * 1000,
       );
     }
