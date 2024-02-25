@@ -12,8 +12,12 @@ export class RedisCacheService implements CacheServiceInterface {
     });
   }
 
-  async set(key: string, value: string): Promise<void> {
+  async set(key: string, value: string, ttlInMs?: number): Promise<void> {
     await this.redisClient.set(key, value);
+
+    if (ttlInMs) {
+      await this.redisClient.pexpire(key, ttlInMs);
+    }
   }
 
   async get(key: string): Promise<any | null> {
