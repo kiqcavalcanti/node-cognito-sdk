@@ -162,10 +162,10 @@ export class CognitoAuthService extends CognitoBaseService {
       );
 
       return {
-        idToken: request.idToken,
-        accessToken: request.accessToken,
-        expiresIn: request.expiresIn,
-        tokenType: request.tokenType,
+        idToken: request.AuthenticationResult.IdToken,
+        accessToken: request.AuthenticationResult.AccessToken,
+        expiresIn: request.AuthenticationResult.ExpiresIn,
+        tokenType: request.AuthenticationResult.TokenType,
       };
     } catch (e) {
       throw new CognitoApiError(
