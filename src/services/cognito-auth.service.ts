@@ -97,7 +97,13 @@ export class CognitoAuthService extends CognitoBaseService {
     }
 
     if (this.cacheService) {
-      const logoutTime: string = await this.cacheService.get(tokenData.sub);
+      let logoutTime: string | null = await this.cacheService.get(
+        tokenData.sub,
+      );
+
+      if (logoutTime) {
+        logoutTime = logoutTime.replaceAll('"', '');
+      }
 
       const currentTokenCreatedDate = new Date(tokenData.iat * 1000);
 
